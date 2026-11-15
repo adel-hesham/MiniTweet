@@ -1,0 +1,187 @@
+name: minitweet
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "15672:15672"   # RabbitMQ dashboard
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # ---------- user-service (Python) ----------
+  user-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: users
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: users
+    volumes:
+      - user_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U users -d users"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  user-service:
+    build: ./services/user-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: user-service
+      DATABASE_URL: postgresql+psycopg2://users:${DB_PASSWORD}@user-db:5432/users
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      user-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ---------- tweet-service (Node.js) ----------
+  tweet-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tweets
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: tweets
+    volumes:
+      - tweet_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tweets -d tweets"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  tweet-service:
+    build: ./services/tweet-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: tweet-service
+      PORT: "8000"
+      DATABASE_URL: postgresql://tweets:${DB_PASSWORD}@tweet-db:5432/tweets
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      JWT_SECRET: ${JWT_SECRET}
+      USER_SERVICE_URL: http://user-service:8000
+    depends_on:
+      tweet-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8000/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------- like-service (Node.js) ----------
+  like-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: likes
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: likes
+    volumes:
+      - like_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U likes -d likes"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  like-service:
+    build: ./services/like-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: like-service
+      PORT: "8000"
+      DATABASE_URL: postgresql://likes:${DB_PASSWORD}@like-db:5432/likes
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      JWT_SECRET: ${JWT_SECRET}
+      TWEET_SERVICE_URL: http://tweet-service:8000
+    depends_on:
+      like-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      tweet-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8000/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------- notification-service (Node.js) ----------
+  notification-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: notifications
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: notifications
+    volumes:
+      - notification_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notifications -d notifications"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  notification-service:
+    build: ./services/notification-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: notification-service
+      PORT: "8000"
+      DATABASE_URL: postgresql://notifications:${DB_PASSWORD}@notification-db:5432/notifications
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      notification-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8000/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------- frontend ----------
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - user-service
+      - tweet-service
+      - like-service
+      - notification-service
+
+volumes:
+  user_db_data:
+  tweet_db_data:
+  like_db_data:
+  notification_db_data:

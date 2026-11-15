@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -u
+
+msg_file="${1:-}"
+if [ -z "$msg_file" ] || [ ! -f "$msg_file" ]; then
+  exit 0
+fi
+
+if [ "${2:-}" = "merge" ] || [ "${2:-}" = "squash" ]; then
+  exit 0
+fi
+
+message=$(cat "$msg_file")
+trimmed="${message#${message%%[![:space:]]*}}"
+trimmed="${trimmed%${trimmed##*[![:space:]]}}"
+if [ -z "$trimmed" ]; then
+  echo "Commit message is empty. Please add a conventional commit message." >&2
+  exit 1
+fi
+
+if ! printf '%s\n' "$message" | grep -Eq '^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-zA-Z0-9._-]+\))?!?: .+'; then
+  echo "Invalid commit message. Use conventional commits like:" >&2
+  echo "  feat: add login form" >&2
+  echo "  fix(api): handle null response" >&2
+  echo "  chore: update dependencies" >&2
+  exit 1
+fi
+
+exit 0

@@ -122,6 +122,22 @@ test('a token signed with the wrong secret is rejected', () =>
     assert.equal(res.status, 401);
   }));
 
+test('tokens with a missing or non-numeric subject are rejected', () =>
+  withApp(async (app) => {
+    const noSub = jwt.sign({ username: 'adel' }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+    const badSub = jwt.sign({ sub: 'not-a-number', username: 'adel' }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+
+    const missing = await fetch(`${app.url}/api/likes?tweet_ids=5`, {
+      headers: { Authorization: `Bearer ${noSub}` },
+    });
+    assert.equal(missing.status, 401);
+
+    const invalid = await fetch(`${app.url}/api/likes?tweet_ids=5`, {
+      headers: { Authorization: `Bearer ${badSub}` },
+    });
+    assert.equal(invalid.status, 401);
+  }));
+
 test('liking a tweet saves the like and publishes tweet.liked with the author', () =>
   withApp(async (app) => {
     const res = await call(app, 'POST', '/api/likes', { body: { tweet_id: 5 }, as: adel });
