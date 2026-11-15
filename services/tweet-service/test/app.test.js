@@ -87,6 +87,26 @@ test('posting a tweet needs a token', () =>
     assert.equal(res.status, 401);
   }));
 
+test('tokens with a missing or non-numeric subject are rejected', () =>
+  withApp(async (app) => {
+    const noSub = jwt.sign({ username: 'adel' }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+    const badSub = jwt.sign({ sub: '1e3', username: 'adel' }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+
+    const missing = await fetch(`${app.url}/api/tweets`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${noSub}` },
+      body: JSON.stringify({ content: 'hi' }),
+    });
+    assert.equal(missing.status, 401);
+
+    const invalid = await fetch(`${app.url}/api/tweets`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${badSub}` },
+      body: JSON.stringify({ content: 'hi' }),
+    });
+    assert.equal(invalid.status, 401);
+  }));
+
 test('a token signed with the wrong secret is rejected', () =>
   withApp(async (app) => {
     const res = await fetch(`${app.url}/api/tweets`, {

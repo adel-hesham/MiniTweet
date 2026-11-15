@@ -40,7 +40,15 @@ function createApp({ config, db, events, getUser }) {
     if (!header.startsWith('Bearer ')) return res.status(401).json({ detail: 'missing token' });
     try {
       const claims = jwt.verify(header.slice(7), config.jwtSecret, { algorithms: ['HS256'] });
-      req.user = { id: Number(claims.sub), username: claims.username };
+      const rawSub = claims.sub;
+      if (typeof rawSub !== 'string' || !/^\d+$/.test(rawSub)) {
+        return res.status(401).json({ detail: 'invalid or expired token' });
+      }
+      const userId = Number(rawSub);
+      if (!Number.isSafeInteger(userId) || userId <= 0) {
+        return res.status(401).json({ detail: 'invalid or expired token' });
+      }
+      req.user = { id: userId, username: claims.username };
       return next();
     } catch {
       return res.status(401).json({ detail: 'invalid or expired token' });

@@ -70,6 +70,12 @@ def test_me_requires_a_token(client):
     assert client.get("/api/users/me").status_code == 401
 
 
+def test_me_rejects_a_token_without_a_numeric_subject(client):
+    token = jwt.encode({"username": "adel"}, "test-secret", algorithm="HS256")
+    response = client.get("/api/users/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+
+
 def test_me_returns_the_logged_in_user(client):
     register(client)
     token = login(client).json()["access_token"]

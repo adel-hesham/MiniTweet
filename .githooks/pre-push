@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -e
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+run_node_tests() {
+  local service_dir="$1"
+  if [ ! -d "$service_dir" ] || [ ! -f "$service_dir/package.json" ]; then
+    return 0
+  fi
+
+  if [ ! -d "$service_dir/node_modules" ]; then
+    echo "Skipping $service_dir tests: dependencies are not installed."
+    return 0
+  fi
+
+  echo "Running push validation for $service_dir"
+  (cd "$service_dir" && npm test --silent) || return 1
+}
+
+run_python_tests() {
+  local service_dir="$1"
+  if [ ! -d "$service_dir" ]; then
+    return 0
+  fi
+
+  if [ ! -f "$service_dir/requirements.txt" ] && [ ! -f "$service_dir/requirements-dev.txt" ]; then
+    return 0
+  fi
+
+  if ! python3 -c "import pytest" >/dev/null 2>&1; then
+    echo "Skipping $service_dir tests: pytest is not installed."
+    return 0
+  fi
+
+  echo "Running push validation for $service_dir"
+  (cd "$ROOT" && python3 -m pytest "$service_dir/tests" -q) || return 1
+}
+
+for service in \
+  "services/like-service" \
+  "services/notification-service" \
+  "services/tweet-service"
+do
+  run_node_tests "$service"
+done
+
+run_python_tests "services/user-service"
+
+echo "All push checks passed."
+exit 0

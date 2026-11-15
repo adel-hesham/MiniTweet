@@ -90,6 +90,18 @@ test('notifications need a token', () =>
     assert.equal((await call(app, 'GET', '/api/notifications', { as: adel, secret: 'other-secret' })).status, 401);
   }));
 
+test('tokens with a missing or non-numeric subject are rejected', () =>
+  withApp(async (app) => {
+    const noSub = jwt.sign({ username: 'adel' }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+    const badSub = jwt.sign({ sub: 'not-a-number', username: 'adel' }, SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+
+    const missing = await fetch(`${app.url}/api/notifications`, { headers: { Authorization: `Bearer ${noSub}` } });
+    assert.equal(missing.status, 401);
+
+    const invalid = await fetch(`${app.url}/api/notifications`, { headers: { Authorization: `Bearer ${badSub}` } });
+    assert.equal(invalid.status, 401);
+  }));
+
 test('you only see your own notifications, newest first, with the unread count', () =>
   withApp(async (app) => {
     await app.db.addNotification({ userId: 1, type: 'welcome', message: 'Welcome', tweetId: null, eventId: 'a' });

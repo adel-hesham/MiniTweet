@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -u
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
+if [ -z "$staged_files" ]; then
+  echo "No staged files found; skipping pre-commit validation."
+  exit 0
+fi
+
+run_node_tests() {
+  local service_dir="$1"
+  if [ ! -d "$service_dir" ] || [ ! -f "$service_dir/package.json" ]; then
+    return 0
+  fi
+
+  if [ ! -d "$service_dir/node_modules" ]; then
+    echo "Skipping $service_dir tests: dependencies are not installed."
+    return 0
+  fi
+
+  echo "Running Node tests for $service_dir"
+  (cd "$service_dir" && npm test --silent) || return 1
+}
+
+run_python_tests() {
+  local service_dir="$1"
+  if [ ! -d "$service_dir" ]; then
+    return 0
+  fi
+
+  if [ ! -f "$service_dir/requirements.txt" ] && [ ! -f "$service_dir/requirements-dev.txt" ]; then
+    return 0
+  fi
+
+  if ! python3 -c "import pytest" >/dev/null 2>&1; then
+    echo "Skipping $service_dir tests: pytest is not installed."
+    return 0
+  fi
+
+  echo "Running Python tests for $service_dir"
+  (cd "$ROOT" && python3 -m pytest "$service_dir/tests" -q) || return 1
+}
+
+changed_services=()
+while IFS= read -r path; do
+  case "$path" in
+    services/like-service/*)
+      changed_services+=("services/like-service")
+      ;;
+    services/notification-service/*)
+      changed_services+=("services/notification-service")
+      ;;
+    services/tweet-service/*)
+      changed_services+=("services/tweet-service")
+      ;;
+    services/user-service/*)
+      changed_services+=("services/user-service")
+      ;;
+  esac
+done <<< "$staged_files"
+
+if [ ${#changed_services[@]} -eq 0 ]; then
+  echo "No service files changed; skipping tests."
+  exit 0
+fi
+
+for service in "${changed_services[@]}"; do
+  case "$service" in
+    services/like-service|services/notification-service|services/tweet-service)
+      run_node_tests "$service" || exit 1
+      ;;
+    services/user-service)
+      run_python_tests "$service" || exit 1
+      ;;
+  esac
+done
+
+echo "Pre-commit checks passed."
+exit 0
