@@ -164,9 +164,17 @@ def current_claims(authorization: str = Header(default="")) -> dict:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "missing token")
     try:
-        return jwt.decode(authorization[7:], JWT_SECRET, algorithms=["HS256"])
+        claims = jwt.decode(authorization[7:], JWT_SECRET, algorithms=["HS256"])
     except jwt.PyJWTError:
         raise HTTPException(401, "invalid or expired token")
+
+    sub = claims.get("sub")
+    if not isinstance(sub, str) or not sub.isdigit():
+        raise HTTPException(401, "invalid or expired token")
+    user_id = int(sub)
+    if user_id <= 0:
+        raise HTTPException(401, "invalid or expired token")
+    return claims
 
 
 # --------------------------------------------------------------------- app
@@ -273,7 +281,10 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
 
 @app.get("/api/users/me")
 def me(claims: dict = Depends(current_claims), db: Session = Depends(get_db)):
-    user = db.get(User, int(claims["sub"]))
+    sub = claims.get("sub")
+    if not isinstance(sub, str) or not sub.isdigit():
+        raise HTTPException(401, "invalid or expired token")
+    user = db.get(User, int(sub))
     if user is None:
         raise HTTPException(401, "user no longer exists")
     return {"id": user.id, "username": user.username, "created_at": user.created_at}
